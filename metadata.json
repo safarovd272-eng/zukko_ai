@@ -1,0 +1,7 @@
+{
+  "name": "Zukko AI",
+  "description": "O'qituvchilar va talabalar uchun darslarni tahlil qiluvchi, yo'l xaritasi va testlar tuzuvchi aqlli yordamchi.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}

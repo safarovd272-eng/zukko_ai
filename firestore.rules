@@ -1,0 +1,105 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: userId (uid)
+    // Fields:
+    //   - uid: string (required)
+    //   - firstName: string (required)
+    //   - lastName: string (required)
+    //   - role: string (required, enum: ['teacher', 'student', 'admin'])
+    //   - email: string (optional)
+    //
+    // Collection: sessions
+    // Document ID: sessionId
+    // Fields:
+    //   - id: string (required)
+    //   - userId: string (required)
+    //   - userFullName: string (required)
+    //   - title: string (required)
+    //   - date: string (required)
+    //   - type: string (required, enum: ['audio', 'pdf'])
+    //   - result: map (required)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+             (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') || 
+             (request.auth.token.email == "diyorbeksafarov27@gmail.com" && request.auth.token.email_verified == true);
+    }
+
+    function isTeacher() {
+      return isAuthenticated() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher';
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'firstName', 'lastName', 'role']) &&
+             data.uid is string &&
+             data.firstName is string && data.firstName.size() >= 2 && data.firstName.size() < 50 &&
+             data.lastName is string && data.lastName.size() >= 2 && data.lastName.size() < 50 &&
+             data.role in ['teacher', 'student', 'admin'];
+    }
+
+    function isValidSession(data) {
+      return data.keys().hasAll(['id', 'userId', 'userFullName', 'title', 'date', 'type', 'result', 'createdAt']) &&
+             data.id is string && data.id.size() > 0 &&
+             data.userId is string && data.userId.size() > 0 &&
+             data.userId == request.auth.uid &&
+             data.userFullName is string && data.userFullName.size() > 0 && data.userFullName.size() < 200 &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 1000 &&
+             data.date is string && data.date.size() > 0 &&
+             data.type in ['audio', 'pdf'] &&
+             data.result is map &&
+             data.createdAt is string;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      allow create: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if isAuthenticated() && (isOwner(userId) || isAdmin()) && isValidUser(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /sessions/{sessionId} {
+      // Students can only read their own sessions
+      // Teachers and Admins can read all sessions
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isTeacher() || isAdmin());
+      
+      // Anyone authenticated can create a session for themselves
+      allow create: if isAuthenticated() && 
+                    isValidSession(request.resource.data);
+      
+      // Only owner or admin can update/delete
+      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin()) && isValidSession(request.resource.data);
+      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+  }
+}
